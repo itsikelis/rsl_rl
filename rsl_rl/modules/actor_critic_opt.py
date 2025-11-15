@@ -25,6 +25,9 @@ class ActorCriticOpt(nn.Module):
         init_noise_std: float = 1.0,
         noise_std_type: str = "scalar",
         state_dependent_std: bool = False,
+        ns: int = 10,
+        nx: int = 4,
+        nu: int = 2,
         **kwargs: dict[str, Any],
     ) -> None:
         if kwargs:
@@ -54,11 +57,23 @@ class ActorCriticOpt(nn.Module):
         # Actor
         if self.state_dependent_std:
             self.actor = MlpOpt(
-                num_actor_obs, [2, num_actions], actor_hidden_dims, activation
+                num_actor_obs,
+                [2, num_actions],
+                actor_hidden_dims,
+                activation,
+                ns=ns,
+                nx=nx,
+                nu=nu,
             )
         else:
             self.actor = MlpOpt(
-                num_actor_obs, num_actions, actor_hidden_dims, activation
+                num_actor_obs,
+                num_actions,
+                actor_hidden_dims,
+                activation,
+                ns=ns,
+                nx=nx,
+                nu=nu,
             )
         print(f"Actor MLPOpt: {self.actor}")
 

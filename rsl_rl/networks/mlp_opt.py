@@ -6,8 +6,7 @@ from functools import reduce
 
 from rsl_rl.utils import resolve_nn_activation
 
-import cvxpy as cp
-from cvxpylayers.torch import CvxpyLayer
+from rsl_rl.modules.opt_layer import OptLayer
 
 
 class MlpOpt(nn.Sequential):
@@ -23,10 +22,13 @@ class MlpOpt(nn.Sequential):
     def __init__(
         self,
         input_dim: int,
-        output_dim: int | tuple[int] | list[int],
+        output_dim: int,
         hidden_dims: tuple[int] | list[int],
         activation: str = "elu",
-        last_activation: str | None = None,
+        last_activation: str = "softplus",
+        ns: int = 10,
+        nx: int = 4,
+        nu: int = 2,
     ) -> None:
         """Initialize the MlpOpt.
 
@@ -36,17 +38,16 @@ class MlpOpt(nn.Sequential):
             hidden_dims: Dimensions of the hidden layers. A value of ``-1`` indicates that the dimension should be
                 inferred from the input dimension.
             activation: Activation function.
-            last_activation: Activation function of the last layer. None results in a linear last layer.
+            last_activation: Activation function of the last cost policy layer.
         """
         super().__init__()
+        nvars = nx + nu + nx  # intermediate stage costs + final
+        policy_output_dim = 2 * nx + nu
+        mpc_input_dim = input_dim + policy_output_dim
 
         # Resolve activation functions
         activation_mod = resolve_nn_activation(activation)
-        last_activation_mod = (
-            resolve_nn_activation(last_activation)
-            if last_activation is not None
-            else None
-        )
+        last_activation_mod = resolve_nn_activation(last_activation)
         # Resolve number of hidden dims if they are -1
         hidden_dims_processed = [input_dim if dim == -1 else dim for dim in hidden_dims]
 
@@ -64,19 +65,19 @@ class MlpOpt(nn.Sequential):
             )
             layers.append(activation_mod)
 
-        # Add last layer
-        if isinstance(output_dim, int):
-            layers.append(nn.Linear(hidden_dims_processed[-1], output_dim))
+        # Add last cost policy layer
+        if isinstance(policy_output_dim, int):
+            layers.append(nn.Linear(hidden_dims_processed[-1], policy_output_dim))
         else:
-            # Compute the total output dimension
-            total_out_dim = reduce(lambda x, y: x * y, output_dim)
-            # Add a layer to reshape the output to the desired shape
-            layers.append(nn.Linear(hidden_dims_processed[-1], total_out_dim))
-            layers.append(nn.Unflatten(dim=-1, unflattened_size=output_dim))
+            print("Error: Non scalar output dimension not supported in MlpOpt class!")
+            exit()
 
-        # Add last activation function if specified
-        if last_activation_mod is not None:
-            layers.append(last_activation_mod)
+        # Add last activation function
+        layers.append(last_activation_mod)
+
+        ## Add optimisation function in the back ##
+        opt_layer = OptLayer()
+        layers.append(opt_layer)
 
         # Register the layers
         for idx, layer in enumerate(layers):
@@ -110,6 +111,5 @@ class MlpOpt(nn.Sequential):
             x: Input tensor.
         """
         for layer in self:
-            print("Hola guapo!")
             x = layer(x)
         return x
