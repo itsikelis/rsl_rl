@@ -4,7 +4,7 @@ import torch.nn as nn
 from qpth.qp import QPFunction, QPSolvers
 
 
-class Optimizaton(nn.Module):
+class Optimization(nn.Module):
     def __init__(
         self,
         ns: int,
