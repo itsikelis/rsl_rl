@@ -4,7 +4,7 @@ import torch.nn as nn
 from qpth.qp import QPFunction, QPSolvers
 
 
-class OptLayer(nn.Module):
+class Optimizaton(nn.Module):
     def __init__(
         self,
         ns: int,
@@ -15,7 +15,8 @@ class OptLayer(nn.Module):
         ub: list[int],
         lb: list[int],
         verbose: int = 0,
-        solver=QPSolvers.PDIPM_BATCHED,
+        # solver=QPSolvers.PDIPM_BATCHED,
+        solver=QPSolvers.CVXPY,
         check_Q_spd: bool = True,
     ):
         super().__init__()
@@ -34,7 +35,8 @@ class OptLayer(nn.Module):
         self.n_ineq = 0
 
         # Precompute constraint matrices
-        self.A_euler, self.b_euler = self.get_euler_constraints_()
+        self.A_euler, self.b_euler = self.get_explicit_euler_constraints_()
+        # self.A_euler, self.b_euler = self.get_semi_implicit_euler_constraints_()
         self.G, self.h = self.get_ineq_constraints_()
 
         self.qp = QPFunction(verbose=verbose, check_Q_spd=check_Q_spd, solver=solver)
@@ -84,12 +86,40 @@ class OptLayer(nn.Module):
 
         return A, b
 
-    def get_euler_constraints_(self):
+    def get_explicit_euler_constraints_(self):
         n_eq = (self.ns - 1) * self.nx  # no of Euler equality constraints
 
         c0 = self.dt * self.A_d_() + torch.eye(self.nx)
         c1 = self.dt * self.B_d_()
         c2 = -torch.eye(self.nx)
+        e_mat = torch.hstack((c0, c1, c2))
+
+        A = torch.zeros(n_eq, self.nvars)
+        for i in range(self.ns - 1):
+            c0 = self.dt * self.A_d_() + torch.eye(self.nx)
+            c1 = self.dt * self.B_d_()
+            c2 = -torch.eye(self.nx)
+            e_mat = torch.hstack((c0, c1, c2))
+
+            row_start = i * self.nx
+            row_end = row_start + self.nx
+            col_start = i * (self.nx + self.nu)
+            col_end = col_start + 2 * self.nx + self.nu
+            A[row_start:row_end, col_start:col_end] = e_mat
+
+        b = torch.zeros(n_eq)
+
+        return A, b
+
+    def get_semi_implicit_euler_constraints_(self):
+        n_eq = (self.ns - 1) * self.nx  # no of Euler equality constraints
+
+        print(self.A_d_()[0:2])
+        exit()
+        c0 = torch.vstack((self.dt * self.A_d_()[0:2] - torch.eye(2), -torch.eye(2)))
+        print(c0)
+        c1 = self.dt * self.B_d_()
+        c2 = -torch.eye(self.nx) + self.dt * self.A_d_()
         e_mat = torch.hstack((c0, c1, c2))
 
         A = torch.zeros(n_eq, self.nvars)
