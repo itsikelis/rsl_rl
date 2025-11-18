@@ -41,11 +41,11 @@ class Optimization(nn.Module):
 
         self.qp = QPFunction(verbose=verbose, check_Q_spd=check_Q_spd, solver=solver)
 
-    def forward(self, Q_diag, R_diag, Q_fin_diag, x_init, z_des):
+    def forward(self, policy_input, x_init, z_des):
 
-        # Q_diag = policy_input[:nx]
-        # R_diag = policy_input[nx : nx + nu]
-        # Q_fin_diag = policy_input[nx + nu :]
+        Q_diag = policy_input[: self.nx]
+        R_diag = policy_input[self.nx : self.nx + self.nu]
+        Q_fin_diag = policy_input[self.nx + self.nu :]
 
         H, g = self.get_cost_matrices_(Q_diag, R_diag, Q_fin_diag, z_des)
         H += 1e-8 * torch.eye(H.shape[0])  # Ensure positive definiteness
