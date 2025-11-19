@@ -7,6 +7,7 @@ from qpth.qp import QPFunction, QPSolvers
 class Optimization(nn.Module):
     def __init__(
         self,
+        n_batch: int,
         ns: int,
         nx: int,
         nu: int,
@@ -15,20 +16,26 @@ class Optimization(nn.Module):
         ub: list[int],
         lb: list[int],
         verbose: int = 0,
-        # solver=QPSolvers.PDIPM_BATCHED,
-        solver=QPSolvers.CVXPY,
+        solver=QPSolvers.PDIPM_BATCHED,
+        # solver=QPSolvers.CVXPY,
         check_Q_spd: bool = True,
     ):
         super().__init__()
 
+        self.n_batch = n_batch
         self.ns = ns
         self.nx = nx
         self.nu = nu
         self.dt = dt
         self.w = w
 
-        self.ub = ub
-        self.lb = lb
+        self.ub = []
+        self.lb = []
+        for _ in range(self.ns - 1):
+            self.ub += ub
+            self.lb += lb
+        self.ub += ub[:nx]
+        self.lb += lb[:nx]
 
         self.nvars = ns * nx + (ns - 1) * nu
         self.n_eq = (ns - 1) * nx + nx
@@ -43,46 +50,56 @@ class Optimization(nn.Module):
 
     def forward(self, policy_input, x_init, z_des):
 
-        Q_diag = policy_input[: self.nx]
-        R_diag = policy_input[self.nx : self.nx + self.nu]
-        Q_fin_diag = policy_input[self.nx + self.nu :]
+        Q_diag = policy_input[:, 0 : self.nx]
+        R_diag = policy_input[:, self.nx : self.nx + self.nu]
+        Q_fin_diag = policy_input[:, self.nx + self.nu :]
 
         H, g = self.get_cost_matrices_(Q_diag, R_diag, Q_fin_diag, z_des)
-        H += 1e-8 * torch.eye(H.shape[0])  # Ensure positive definiteness
+        H += 1e-8  # Ensure positive definiteness
 
         A, b = self.get_eq_constraints_(x_init)
 
         # Solve the optimisation problem
-        sol = self.qp(H, g, self.G, self.h, A, b).flatten()
+        self.sol = self.qp(
+            H,
+            g,
+            self.G,
+            self.h,
+            A,
+            b,
+        ).flatten()
 
-        return sol
+        return self.sol[self.nx : self.nx + self.nu]
 
     def get_cost_matrices_(self, Q_diag, R_diag, Q_fin_diag, z_des):
-        H = torch.zeros((self.nvars, self.nvars))
+        H = torch.zeros((self.n_batch, self.nvars, self.nvars))
 
-        Q = torch.diag(Q_diag)
-        R = torch.diag(R_diag)
-        Q_fin = torch.diag(Q_fin_diag)
+        Q = torch.diag_embed(Q_diag)
+        R = torch.diag_embed(R_diag)
+        Q_fin = torch.diag_embed(Q_fin_diag)
 
         for i in range(self.ns - 1):
             x_start = i * (self.nx + self.nu)
             x_end = x_start + self.nx
             u_start = i * (self.nx + self.nu) + self.nx
             u_end = u_start + self.nu
-            H[x_start:x_end, x_start:x_end] = Q
-            H[u_start:u_end, u_start:u_end] = R
+            H[:, x_start:x_end, x_start:x_end] = Q
+            H[:, u_start:u_end, u_start:u_end] = R
 
-        H[-self.nx :, -self.nx :] = Q_fin
+        H[:, -self.nx :, -self.nx :] = Q_fin
 
-        g = -H @ z_des
+        # g = -H @ z_des
+        # g = torch.matmul(-H, z_des.reshape((n_envs, -1, 1)))
+        g = torch.bmm(-H, z_des.unsqueeze(2))
 
-        return H, g
+        return H, g.squeeze()
 
     def get_eq_constraints_(self, x_init):
         # TODO: A_init can be precomputed and b_init is just x_init
         A_init, b_init = self.get_x_init_constraints_(x_init)
-        A = torch.vstack((self.A_euler, A_init))
-        b = torch.hstack((self.b_euler, b_init))
+        A = torch.cat((self.A_euler, A_init), dim=1)
+        print(self.b_euler.shape, b_init.shape)
+        b = torch.cat((self.b_euler, b_init), dim=1)
 
         return A, b
 
@@ -109,7 +126,7 @@ class Optimization(nn.Module):
 
         b = torch.zeros(n_eq)
 
-        return A, b
+        return A.repeat(self.n_batch, 1, 1), b.repeat(self.n_batch, 1)
 
     def get_semi_implicit_euler_constraints_(self):
         n_eq = (self.ns - 1) * self.nx  # no of Euler equality constraints
@@ -141,11 +158,10 @@ class Optimization(nn.Module):
 
     def get_x_init_constraints_(self, x_init):
         n_eq = self.nx  # no of x_init equality constraints
+        A = torch.zeros(self.n_batch, n_eq, self.nvars)
+        A[:, 0:n_eq, 0:n_eq] = torch.eye(n_eq)
 
-        A = torch.zeros(n_eq, self.nvars)
-        A[0:n_eq, 0:n_eq] = torch.eye(self.nx)
-
-        b = x_init.reshape(-1)
+        b = x_init
 
         return A, b
 
@@ -155,7 +171,7 @@ class Optimization(nn.Module):
         G = torch.vstack((I, -I))
         h = torch.hstack((torch.tensor(self.ub), -torch.tensor(self.lb)))
 
-        return G, h
+        return G.repeat(self.n_batch, 1, 1), h.repeat(self.n_batch, 1)
 
     def A_d_(self):
         return torch.tensor(

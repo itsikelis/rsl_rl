@@ -7,8 +7,8 @@
 
 from .memory import HiddenState, Memory
 from .mlp import MLP
-from .mlp_opt import MlpOpt
 from .optimization import Optimization
+from .mlp_opt import MlpOpt
 from .normalization import (
     EmpiricalDiscountedVariationNormalization,
     EmpiricalNormalization,
@@ -16,8 +16,8 @@ from .normalization import (
 
 __all__ = [
     "MLP",
-    "MlpOpt",
     "Optimization",
+    "MlpOpt",
     "EmpiricalDiscountedVariationNormalization",
     "EmpiricalNormalization",
     "HiddenState",

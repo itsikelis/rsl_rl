@@ -6,82 +6,65 @@ from functools import reduce
 
 from rsl_rl.utils import resolve_nn_activation
 
-from rsl_rl.modules.opt_layer import OptLayer
+from rsl_rl.networks import MLP, Optimization
 
 
-class MlpOpt(nn.Sequential):
+class MlpOpt(nn.Module):
     """Multi-layer perceptron with an optimisation layer in the tail.
 
-    The MlpOpt network is a sequence of linear layers and activation functions. The last layer is a differentiable optimisation layer that solves a QP prblem.
-
-    It provides additional conveniences:
     - If the hidden dimensions have a value of ``-1``, the dimension is inferred from the input dimension.
     - If the output dimension is a tuple, the output is reshaped to the desired shape.
     """
 
     def __init__(
         self,
-        input_dim: int,
-        output_dim: int,
-        hidden_dims: tuple[int] | list[int],
-        activation: str = "elu",
-        last_activation: str = "softplus",
-        ns: int = 10,
-        nx: int = 4,
-        nu: int = 2,
+        n_envs: int,
+        ns: int,
+        nx: int,
+        nu: int,
+        dt: float,
+        w: float,
+        ub: list[int],
+        lb: list[int],
+        policy_hidden_dims: list[int],
+        policy_activation: str = "elu",
+        policy_last_activation: str = "softplus",
     ) -> None:
         """Initialize the MlpOpt.
 
         Args:
-            input_dim: Dimension of the input.
-            output_dim: Dimension of the output.
-            hidden_dims: Dimensions of the hidden layers. A value of ``-1`` indicates that the dimension should be
-                inferred from the input dimension.
-            activation: Activation function.
-            last_activation: Activation function of the last cost policy layer.
+            TODO: Add args description
         """
         super().__init__()
-        nvars = nx + nu + nx  # intermediate stage costs + final
-        policy_output_dim = 2 * nx + nu
-        mpc_input_dim = input_dim + policy_output_dim
 
-        # Resolve activation functions
-        activation_mod = resolve_nn_activation(activation)
-        last_activation_mod = resolve_nn_activation(last_activation)
-        # Resolve number of hidden dims if they are -1
-        hidden_dims_processed = [input_dim if dim == -1 else dim for dim in hidden_dims]
+        self.ns = ns
+        self.nx = nx
+        self.nu = nu
+        self.nvars = self.ns * self.nx + (self.ns - 1) * self.nu
+        policy_input_dim = self.nx + self.nvars
+        policy_output_dim = 2 * self.nx + self.nu
+        mpc_input_dim = policy_input_dim + policy_output_dim
 
-        # Create layers sequentially
-        layers = []
-        layers.append(nn.Linear(input_dim, hidden_dims_processed[0]))
-        layers.append(activation_mod)
+        ## Cost policy
+        self.cost_policy = MLP(
+            input_dim=policy_input_dim,
+            output_dim=policy_output_dim,
+            hidden_dims=policy_hidden_dims,
+            activation=policy_activation,
+            last_activation=policy_last_activation,
+        )
 
-        for layer_index in range(len(hidden_dims_processed) - 1):
-            layers.append(
-                nn.Linear(
-                    hidden_dims_processed[layer_index],
-                    hidden_dims_processed[layer_index + 1],
-                )
-            )
-            layers.append(activation_mod)
-
-        # Add last cost policy layer
-        if isinstance(policy_output_dim, int):
-            layers.append(nn.Linear(hidden_dims_processed[-1], policy_output_dim))
-        else:
-            print("Error: Non scalar output dimension not supported in MlpOpt class!")
-            exit()
-
-        # Add last activation function
-        layers.append(last_activation_mod)
-
-        ## Add optimisation function in the back ##
-        opt_layer = OptLayer()
-        layers.append(opt_layer)
-
-        # Register the layers
-        for idx, layer in enumerate(layers):
-            self.add_module(f"{idx}", layer)
+        ## Optimization Layer
+        self.opt_layer = Optimization(
+            n_batch=n_envs,
+            ns=self.ns,
+            nx=self.nx,
+            nu=self.nu,
+            dt=dt,
+            w=w,
+            ub=ub,
+            lb=lb,
+        )
 
     def init_weights(self, scales: float | tuple[float]) -> None:
         """Initialize the weights of the MLP.
@@ -89,20 +72,7 @@ class MlpOpt(nn.Sequential):
         Args:
             scales: Scale factor for the weights.
         """
-
-        def get_scale(idx: int) -> float:
-            """Get the scale factor for the weights of the MLP.
-
-            Args:
-                idx: Index of the layer.
-            """
-            return scales[idx] if isinstance(scales, (list, tuple)) else scales
-
-        # Initialize the weights
-        for idx, module in enumerate(self):
-            if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, gain=get_scale(idx))
-                nn.init.zeros_(module.bias)
+        self.cost_policy.init_weights(scales)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass of the MLP.
@@ -110,6 +80,10 @@ class MlpOpt(nn.Sequential):
         Args:
             x: Input tensor.
         """
-        for layer in self:
-            x = layer(x)
+        x_init = x[:, 0 : self.nx].clone()
+        z_des = x[:, self.nx :].clone()
+        # Get MPC costs from policy
+        x = self.cost_policy.forward(x)
+        # Pass through optimization layer
+        x = self.opt_layer.forward(x, x_init, z_des)
         return x

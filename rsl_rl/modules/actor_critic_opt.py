@@ -17,6 +17,13 @@ class ActorCriticOpt(nn.Module):
         obs: TensorDict,
         obs_groups: dict[str, list[str]],
         num_actions: int,
+        ns: int,
+        nx: int,
+        nu: int,
+        dt: float,
+        w: float,
+        ub: list[float],
+        lb: list[float],
         actor_obs_normalization: bool = False,
         critic_obs_normalization: bool = False,
         actor_hidden_dims: tuple[int] | list[int] = [256, 256, 256],
@@ -25,9 +32,6 @@ class ActorCriticOpt(nn.Module):
         init_noise_std: float = 1.0,
         noise_std_type: str = "scalar",
         state_dependent_std: bool = False,
-        ns: int = 10,
-        nx: int = 4,
-        nu: int = 2,
         **kwargs: dict[str, Any],
     ) -> None:
         if kwargs:
@@ -56,24 +60,23 @@ class ActorCriticOpt(nn.Module):
 
         # Actor
         if self.state_dependent_std:
-            self.actor = MlpOpt(
-                num_actor_obs,
-                [2, num_actions],
-                actor_hidden_dims,
-                activation,
-                ns=ns,
-                nx=nx,
-                nu=nu,
+            print(
+                "Error: State dependent std not yet supported in ActorCriticOpt module!"
             )
+            exit()
         else:
             self.actor = MlpOpt(
-                num_actor_obs,
-                num_actions,
-                actor_hidden_dims,
-                activation,
+                n_envs=obs["policy"].shape[0],
                 ns=ns,
                 nx=nx,
                 nu=nu,
+                dt=dt,
+                w=w,
+                ub=ub,
+                lb=lb,
+                policy_hidden_dims=actor_hidden_dims,
+                policy_activation=activation,
+                policy_last_activation="softplus",
             )
         print(f"Actor MLPOpt: {self.actor}")
 
