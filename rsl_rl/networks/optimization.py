@@ -42,22 +42,28 @@ class Optimization(nn.Module):
         self.n_ineq = 0
 
         # Precompute constraint matrices
-        self.A_euler, self.b_euler = self.get_explicit_euler_constraints_()
+        # self.A_euler, self.b_euler = self.get_explicit_euler_constraints_()
         # self.A_euler, self.b_euler = self.get_semi_implicit_euler_constraints_()
-        self.G, self.h = self.get_ineq_constraints_()
+        # self.G, self.h = self.get_ineq_constraints_()
 
         self.qp = QPFunction(verbose=verbose, check_Q_spd=check_Q_spd, solver=solver)
 
     def forward(self, policy_input, x_init, z_des):
+        self.n_batch = policy_input.shape[0]
+
+        policy_input += 1e-6  # Ensure positive definiteness
 
         Q_diag = policy_input[:, 0 : self.nx]
         R_diag = policy_input[:, self.nx : self.nx + self.nu]
         Q_fin_diag = policy_input[:, self.nx + self.nu :]
 
         H, g = self.get_cost_matrices_(Q_diag, R_diag, Q_fin_diag, z_des)
-        H += 1e-8  # Ensure positive definiteness
+        # H += 1e-8
 
         A, b = self.get_eq_constraints_(x_init)
+
+        self.G, self.h = self.get_ineq_constraints_()
+        self.G[:, :, :] = 0.0
 
         # Solve the optimisation problem
         self.sol = self.qp(
@@ -67,9 +73,9 @@ class Optimization(nn.Module):
             self.h,
             A,
             b,
-        ).flatten()
+        )
 
-        return self.sol[self.nx : self.nx + self.nu]
+        return self.sol[:, self.nx : self.nx + self.nu]
 
     def get_cost_matrices_(self, Q_diag, R_diag, Q_fin_diag, z_des):
         H = torch.zeros((self.n_batch, self.nvars, self.nvars))
@@ -97,8 +103,8 @@ class Optimization(nn.Module):
     def get_eq_constraints_(self, x_init):
         # TODO: A_init can be precomputed and b_init is just x_init
         A_init, b_init = self.get_x_init_constraints_(x_init)
+        self.A_euler, self.b_euler = self.get_explicit_euler_constraints_()
         A = torch.cat((self.A_euler, A_init), dim=1)
-        print(self.b_euler.shape, b_init.shape)
         b = torch.cat((self.b_euler, b_init), dim=1)
 
         return A, b

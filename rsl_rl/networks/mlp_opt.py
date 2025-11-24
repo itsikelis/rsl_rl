@@ -6,7 +6,7 @@ from functools import reduce
 
 from rsl_rl.utils import resolve_nn_activation
 
-from rsl_rl.networks import MLP, Optimization
+from rsl_rl.networks import MLP, ConstrainedLqr
 
 
 class MlpOpt(nn.Module):
@@ -18,14 +18,9 @@ class MlpOpt(nn.Module):
 
     def __init__(
         self,
-        n_envs: int,
         ns: int,
         nx: int,
         nu: int,
-        dt: float,
-        w: float,
-        ub: list[int],
-        lb: list[int],
         policy_hidden_dims: list[int],
         policy_activation: str = "elu",
         policy_last_activation: str = "softplus",
@@ -41,7 +36,7 @@ class MlpOpt(nn.Module):
         self.nx = nx
         self.nu = nu
         self.nvars = self.ns * self.nx + (self.ns - 1) * self.nu
-        policy_input_dim = self.nx + self.nvars
+        policy_input_dim = 2 * self.nx
         policy_output_dim = 2 * self.nx + self.nu
         mpc_input_dim = policy_input_dim + policy_output_dim
 
@@ -55,16 +50,7 @@ class MlpOpt(nn.Module):
         )
 
         ## Optimization Layer
-        self.opt_layer = Optimization(
-            n_batch=n_envs,
-            ns=self.ns,
-            nx=self.nx,
-            nu=self.nu,
-            dt=dt,
-            w=w,
-            ub=ub,
-            lb=lb,
-        )
+        self.opt_layer = ConstrainedLqr(ns=self.ns, nx=self.nx, nu=self.nu)
 
     def init_weights(self, scales: float | tuple[float]) -> None:
         """Initialize the weights of the MLP.
@@ -74,16 +60,14 @@ class MlpOpt(nn.Module):
         """
         self.cost_policy.init_weights(scales)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, A, b, G, h) -> torch.Tensor:
         """Forward pass of the MLP.
 
         Args:
             x: Input tensor.
         """
-        x_init = x[:, 0 : self.nx].clone()
-        z_des = x[:, self.nx :].clone()
         # Get MPC costs from policy
         x = self.cost_policy.forward(x)
         # Pass through optimization layer
-        x = self.opt_layer.forward(x, x_init, z_des)
+        x = self.opt_layer.forward(x, A, b, G, h)
         return x

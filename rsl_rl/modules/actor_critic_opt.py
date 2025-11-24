@@ -20,10 +20,6 @@ class ActorCriticOpt(nn.Module):
         ns: int,
         nx: int,
         nu: int,
-        dt: float,
-        w: float,
-        ub: list[float],
-        lb: list[float],
         actor_obs_normalization: bool = False,
         critic_obs_normalization: bool = False,
         actor_hidden_dims: tuple[int] | list[int] = [256, 256, 256],
@@ -66,14 +62,9 @@ class ActorCriticOpt(nn.Module):
             exit()
         else:
             self.actor = MlpOpt(
-                n_envs=obs["policy"].shape[0],
                 ns=ns,
                 nx=nx,
                 nu=nu,
-                dt=dt,
-                w=w,
-                ub=ub,
-                lb=lb,
                 policy_hidden_dims=actor_hidden_dims,
                 policy_activation=activation,
                 policy_last_activation="softplus",
@@ -152,10 +143,17 @@ class ActorCriticOpt(nn.Module):
     def entropy(self) -> torch.Tensor:
         return self.distribution.entropy().sum(dim=-1)
 
-    def _update_distribution(self, obs: TensorDict) -> None:
+    def _update_distribution(
+        self,
+        obs: TensorDict,
+        A: torch.Tensor,
+        b: torch.Tensor,
+        G: torch.Tensor,
+        h: torch.Tensor,
+    ) -> None:
         if self.state_dependent_std:
             # Compute mean and standard deviation
-            mean_and_std = self.actor(obs)
+            mean_and_std = self.actor(obs, A, b, G, h)
             if self.noise_std_type == "scalar":
                 mean, std = torch.unbind(mean_and_std, dim=-2)
             elif self.noise_std_type == "log":
@@ -167,7 +165,7 @@ class ActorCriticOpt(nn.Module):
                 )
         else:
             # Compute mean
-            mean = self.actor(obs)
+            mean = self.actor(obs, A, b, G, h)
             # Compute standard deviation
             if self.noise_std_type == "scalar":
                 std = self.std.expand_as(mean)
@@ -181,9 +179,10 @@ class ActorCriticOpt(nn.Module):
         self.distribution = Normal(mean, std)
 
     def act(self, obs: TensorDict, **kwargs: dict[str, Any]) -> torch.Tensor:
+        A, b, G, h = self._get_constraint_matrices(obs)
         obs = self.get_actor_obs(obs)
         obs = self.actor_obs_normalizer(obs)
-        self._update_distribution(obs)
+        self._update_distribution(obs, A, b, G, h)
         return self.distribution.sample()
 
     def act_inference(self, obs: TensorDict) -> torch.Tensor:
@@ -232,3 +231,12 @@ class ActorCriticOpt(nn.Module):
         """
         super().load_state_dict(state_dict, strict=strict)
         return True
+
+    def _get_constraint_matrices(
+        self, obs: TensorDict
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        A = obs["A"]
+        b = obs["b"]
+        G = obs["G"]
+        h = obs["h"]
+        return A, b, G, h

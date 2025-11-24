@@ -7,7 +7,7 @@
 
 from .memory import HiddenState, Memory
 from .mlp import MLP
-from .optimization import Optimization
+from .constrained_lqr import ConstrainedLqr
 from .mlp_opt import MlpOpt
 from .normalization import (
     EmpiricalDiscountedVariationNormalization,
@@ -16,7 +16,7 @@ from .normalization import (
 
 __all__ = [
     "MLP",
-    "Optimization",
+    "ConstrainedLqr",
     "MlpOpt",
     "EmpiricalDiscountedVariationNormalization",
     "EmpiricalNormalization",
