@@ -10,7 +10,7 @@ class ConstrainedLqr(nn.Module):
         ns: int,
         nx: int,
         nu: int,
-        eps: float = 1e-6,
+        eps: float = 1e-8,
         verbose: int = 0,
         solver=QPSolvers.PDIPM_BATCHED,
         # solver=QPSolvers.CVXPY,
@@ -25,16 +25,21 @@ class ConstrainedLqr(nn.Module):
 
         self.eps = eps  # Regularization to ensure SPD
 
-        self.qp = QPFunction(verbose=verbose, check_Q_spd=check_Q_spd, solver=solver)
+        self.qp = QPFunction(
+            verbose=verbose,
+            check_Q_spd=check_Q_spd,
+            solver=solver,
+            maxIter=20,
+        )
 
     def forward(self, w, A, b, G, h):
         w += self.eps  # Ensure SPD
 
         nbatch = w.shape[0]
 
-        q_diag = w[:, 0 : self.nx]
-        r_diag = w[:, self.nx : self.nx + self.nu]
-        q_fin_diag = w[:, self.nx + self.nu :]
+        q_diag = torch.cat((torch.zeros((w.shape[0], 1)) + self.eps, w[:, 0:1]), dim=1)
+        r_diag = w[:, 1 : 1 + self.nu]
+        q_fin_diag = w[:, 1 + self.nu :]
 
         ## Generate Q matrix
         Q = torch.zeros((nbatch, self.nvars, self.nvars))
@@ -54,12 +59,6 @@ class ConstrainedLqr(nn.Module):
 
         ## Generate p vector
         p = torch.zeros((Q.shape[0], Q.shape[1]))
-
-        ## If there are no inequality constraints, create a dummy one
-        G = torch.zeros((w.shape[0], 1, self.nvars))
-        G[:, 0, 0] = 1.0
-        h = torch.zeros(w.shape[0], 1)
-        h[:, 0] = 1e4
 
         ## Solve the LQR problem
         self.sol = self.qp(Q, p, G, h, A, b)
