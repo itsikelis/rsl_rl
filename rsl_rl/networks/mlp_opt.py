@@ -21,6 +21,7 @@ class MlpOpt(nn.Module):
         ns: int,
         nx: int,
         nu: int,
+        num_obs: int,
         policy_hidden_dims: list[int],
         policy_activation: str = "elu",
         policy_last_activation: str = "softplus",
@@ -36,8 +37,8 @@ class MlpOpt(nn.Module):
         self.nx = nx
         self.nu = nu
         self.nvars = self.ns * self.nx + (self.ns - 1) * self.nu
-        policy_input_dim = 2 * self.nx
-        policy_output_dim = 1 + self.nu + self.nx
+        policy_input_dim = num_obs
+        policy_output_dim = int(self.nx / 2) + self.nu + self.nx
         mpc_input_dim = policy_input_dim + policy_output_dim
 
         ## Cost policy

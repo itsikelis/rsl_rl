@@ -37,9 +37,15 @@ class ConstrainedLqr(nn.Module):
 
         nbatch = w.shape[0]
 
-        q_diag = torch.cat((torch.zeros((w.shape[0], 1)) + self.eps, w[:, 0:1]), dim=1)
-        r_diag = w[:, 1 : 1 + self.nu]
-        q_fin_diag = 1e4 + w[:, 1 + self.nu :]
+        q_diag = torch.cat(
+            (
+                torch.zeros((w.shape[0], int(self.nx / 2))) + self.eps,
+                w[:, 0 : int(self.nx / 2)],
+            ),
+            dim=1,
+        )
+        r_diag = w[:, int(self.nx / 2) : int(self.nx / 2) + self.nu]
+        q_fin_diag = 1e4 + w[:, int(self.nx / 2) + self.nu :]
 
         ## Generate Q matrix
         Q = torch.zeros((nbatch, self.nvars, self.nvars))
