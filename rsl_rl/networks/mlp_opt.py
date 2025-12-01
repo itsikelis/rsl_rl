@@ -38,7 +38,7 @@ class MlpOpt(nn.Module):
         self.nu = nu
         self.nvars = self.ns * self.nx + (self.ns - 1) * self.nu
         mlp_output_dim = int(self.nx / 2) + self.nu + self.nx
-        mpc_input_dim = policy_input_dim + mlp_output_dim
+        mpc_input_dim = input_dim + mlp_output_dim
 
         ## Cost policy
         self.cost_policy = MLP(

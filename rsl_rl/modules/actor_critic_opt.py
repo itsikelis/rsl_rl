@@ -65,7 +65,7 @@ class ActorCriticOpt(nn.Module):
                 ns=ns,
                 nx=nx,
                 nu=nu,
-                num_obs=num_actor,
+                input_dim=num_actor_obs,
                 policy_hidden_dims=actor_hidden_dims,
                 policy_activation=activation,
                 policy_last_activation="softplus",
