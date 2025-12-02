@@ -66,8 +66,9 @@ class MlpOpt(nn.Module):
         Args:
             x: Input tensor.
         """
+        z_des = x[:, -self.nvars :]
         # Get MPC costs from policy
         x = self.cost_policy.forward(x)
         # Pass through optimization layer
-        x = self.opt_layer.forward(x, A, b, G, h)
+        x = self.opt_layer.forward(x, z_des, A, b, G, h)
         return x

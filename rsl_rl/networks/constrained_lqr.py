@@ -32,7 +32,7 @@ class ConstrainedLqr(nn.Module):
             maxIter=20,
         )
 
-    def forward(self, w, A, b, G, h):
+    def forward(self, w, z_des, A, b, G, h):
         w += self.eps  # Ensure SPD
 
         nbatch = w.shape[0]
@@ -64,7 +64,8 @@ class ConstrainedLqr(nn.Module):
             Q[:, diag_idx, diag_idx] = q_fin_diag[:, k]
 
         ## Generate p vector
-        p = torch.zeros((Q.shape[0], Q.shape[1]))
+        # p = torch.zeros((Q.shape[0], Q.shape[1]))
+        p = torch.bmm(Q, z_des.unsqueeze(2)).squeeze()
 
         ## Solve the LQR problem
         self.sol = self.qp(Q, p, G, h, A, b)
